@@ -191,6 +191,149 @@ double* calc_symmetric_adjacency_matrix(int* pic, int cols, int rows, int dm1, i
 	return adj_matr_1;
 }
 
+__global__ double* calc_first_angle_moment(
+    double* result,
+    double* normalized_symmetric_adjacency_matrix,
+    int rows,
+    int cols,
+    int max_j,
+    int i,
+    int stride){
+    int index = threadIdx.x + blockDim.x * blockIdx.x;
+
+    for(int m = index * stride; m<(index+1)*stride; m++){
+        result[m] = normalized_symmetric_adjacency_matrix[i * rows + m];
+    }
+}
+
+__global__ void calc_first_main_moment(double* first_angle_moment,
+                                          double* result, int stride,
+                                          double i){
+    int index = threadIdx.x + blockDim.x * blockIdx.x;
+
+    for(int m = index * stride; m < (index+1) * stride; m++){
+        result[m] = i * first_angle_moment[m];
+    }
+}
+
+/**
+  * this should be called once for single string in picture
+  * or once for single j value
+  *
+  * */
+__global__ void calc_second_angle_moment(
+        double* result,
+        double* normalized_symmetric_adjacency_matrix,
+        int rows,
+        int cols,
+        int max_j,
+        int i,
+        int stride){
+    int index = threadIdx.x + blockDim.x * blockIdx.x;
+
+    for(int m = index * stride; m< (index+1) * stride; m++){
+        result[m] += pow(normalized_symmetric_adjacency_matrix[i*rows + m], 2);
+    }
+}
+
+__global__ void calc_contrast(double* result,
+                              double* normalized_symmetric_adjacency_matrix,
+                              int rows, int cols,
+                              int max_j,
+                              int i,
+                              int stride){
+    int index = threadIdx.x + blockDim.x * blockIdx.x;
+
+    for(int j = index * stride; j< (index+1) * stride; j++){
+        result[m] += abs(i-j)*normalized_symmetric_adjacency_matrix[i*rows + j];
+    }
+
+}
+
+__global__ void calc_intertion(double* result,
+                               double* normalized_symmetric_adjacency_matrix,
+                               int rows, int cols,
+                               int max_j,
+                               int i,
+                               int stride){
+    int index = threadIdx.x + blockDim.x * blockIdx.x;
+
+    for(int j = index * stride; j< (index+1) * stride; j++){
+        result[m] += pow(i-j, 2)*normalized_symmetric_adjacency_matrix[i*rows + j];
+    }
+}
+
+__global__ void calc_correlation(double* result,
+                               double* normalized_symmetric_adjacency_matrix,
+                               int rows, int cols,
+                               int max_j,
+                               int i,
+                               double mx,
+                               int stride){
+    int index = threadIdx.x + blockDim.x * blockIdx.x;
+
+    for(int j = index * stride; j< (index+1) * stride; j++){
+        result[m] += (i-mx)*(j-mx)*normalized_symmetric_adjacency_matrix[i*rows + j];
+    }
+}
+
+__global__ void calc_blackout(double* result,
+                               double* normalized_symmetric_adjacency_matrix,
+                               int rows, int cols,
+                               int max_j,
+                               int i,
+                               double mx,
+                               int stride){
+    int index = threadIdx.x + blockDim.x * blockIdx.x;
+
+    for(int j = index * stride; j< (index+1) * stride; j++){
+        result[m] += pow(i+j-2*mx,3)*normalized_symmetric_adjacency_matrix[i*rows + j];
+    }
+}
+
+__global__ void calc_entropy(double* result,
+                               double* normalized_symmetric_adjacency_matrix,
+                               int rows, int cols,
+                               int max_j,
+                               int i,
+                               double mx,
+                               int stride){
+    int index = threadIdx.x + blockDim.x * blockIdx.x;
+
+    for(int j = index * stride; j< (index+1) * stride; j++){
+        result[m] += ln(normalized_symmetric_adjacency_matrix[i*rows + j])*normalized_symmetric_adjacency_matrix[i*rows + j];
+    }
+    result[m] = -result[m]; // looks like cratch
+}
+
+__global__ void calc_reverse_deviation(double* result,
+                               double* normalized_symmetric_adjacency_matrix,
+                               int rows, int cols,
+                               int max_j,
+                               int i,
+                               double mx,
+                               int stride){
+    int index = threadIdx.x + blockDim.x * blockIdx.x;
+
+    for(int j = index * stride; j< (index+1) * stride; j++){
+        result[m] += pow(1+abs(i-j),-1)*normalized_symmetric_adjacency_matrix[i*rows + j];
+    }
+}
+
+__global__ void calc_reverse_moment(double* result,
+                               double* normalized_symmetric_adjacency_matrix,
+                               int rows, int cols,
+                               int max_j,
+                               int i,
+                               double mx,
+                               int stride){
+    int index = threadIdx.x + blockDim.x * blockIdx.x;
+
+    for(int j = index * stride; j< (index+1) * stride; j++){
+        result[m] += pow(1+abs(i-j),-2)*normalized_symmetric_adjacency_matrix[i*rows + j];
+    }
+}
+
 void test(){
 	double* v1 = new double[4];
 	double* v2 = new double[4];
@@ -229,7 +372,7 @@ void test2(void) {
 	srand(time(NULL));
 
 	static const int rows = 1024, cols = 1024,
-			dm1 = 20, dm2 = 20, max_i = 10, max_j = 10;
+            dm1 = 20, dm2 = 20, max_i = 256, max_j = 256;
 
 	int* values = prepare_matrix(cols, rows);
 	const int m_size = get_matrix_size_bytes(cols,rows);
