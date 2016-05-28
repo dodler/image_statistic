@@ -31,7 +31,7 @@ void print_vector(double* v, int cols, int rows);
 int* prepare_matrix(int cols, int rows);
 double* calc_adjacency_matrix(int dm1, int dm2, int* c_values, int cols,
 		int rows, int max_i, int max_j);
-void calc_signs(double* adj_matr, int cols, int rows, int dm1, int dm2,
+double* calc_signs(double* adj_matr, int cols, int rows, int dm1, int dm2,
 		int max_i, int max_j);
 double* calc_symmetric_adjacency_matrix(int* pic, int cols, int rows, int dm1,
 		int dm2, int max_i, int max_j);
