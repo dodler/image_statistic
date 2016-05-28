@@ -20,19 +20,29 @@
 #include <cstdlib>
 #include <string>
 #include <map>
+#include <cmath>
+#include <cstdio>
 
 #include "image_statistic.h"
 
 using namespace std;
 
-static void CheckCudaErrorAux (const char *, unsigned, const char *, cudaError_t);
+static void CheckCudaErrorAux(const char *, unsigned, const char *,
+		cudaError_t);
 #define CUDA_CHECK_RETURN(value) CheckCudaErrorAux(__FILE__,__LINE__, #value, value)
+
+#define PRINTER(name) printer(#name, (name))
+
+void printer(char *name, double value) {
+	//printf("name: %s\tvalue: %lf\n", name, value);
+	cout << name << "|" << value << endl;
+}
 
 /**
  * function returns size of matrix defined higher in bytes
  */
-int get_matrix_size_bytes(int cols, int rows){
-	return (cols*rows)*sizeof(int);
+int get_matrix_size_bytes(int cols, int rows) {
+	return (cols * rows) * sizeof(int);
 }
 
 /**
@@ -40,10 +50,10 @@ int get_matrix_size_bytes(int cols, int rows){
  * m1 is column number
  * m2 is position in row
  */
-__device__ int f(int m1, int m2, int cols, int rows, int* pic){
-	if (m1 < cols && m2 < rows && m1 >= 0 && m2 >= 0){
-		return pic[m1*rows + m2];
-	}else{
+__device__ int f(int m1, int m2, int cols, int rows, int* pic) {
+	if (m1 < cols && m2 < rows && m1 >= 0 && m2 >= 0) {
+		return pic[m1 * rows + m2];
+	} else {
 		return 0;
 	}
 }
@@ -54,9 +64,11 @@ __device__ int f(int m1, int m2, int cols, int rows, int* pic){
  * d_m1 and d_m2 are distances for 2 points
  * i and j are densities for m1,m2 and m1+d_m1, m2_d_m2 points respectively
  */
-__device__ int q_ij(int m1, int m2, int d_m1, int d_m2, int i, int j, int cols, int rows, int* pic){
+__device__ int q_ij(int m1, int m2, int d_m1, int d_m2, int i, int j, int cols,
+		int rows, int* pic) {
 	int result = 0;
-	if (f(m1,m2, cols, rows, pic) == i && f(m1+d_m1, m2+d_m2, cols, rows, pic) == j){
+	if (f(m1, m2, cols, rows, pic) == i
+			&& f(m1 + d_m1, m2 + d_m2, cols, rows, pic) == j) {
 		result = 1;
 	}
 	return result;
@@ -70,275 +82,398 @@ __device__ int q_ij(int m1, int m2, int d_m1, int d_m2, int i, int j, int cols, 
  * function will be launched N times, N - number of rows
  * c_values stores source image in format of vector
  */
-__global__ void c_dm1_dm2(int i, int j, int cols, int rows, int dm1, int dm2, int* c_values, int* res){
-	int index = threadIdx.x + blockDim.x* blockIdx.x; // here index equals to string number
+__global__ void c_dm1_dm2(int i, int j, int cols, int rows, int dm1, int dm2,
+		int* c_values, int* res) {
+	int index = threadIdx.x + blockDim.x * blockIdx.x; // here index equals to string number
 	res[index] = 0;
 
-
-	for(int m1 = 0; m1<cols; m1++){
-		res[index] += q_ij(index, m1, dm1, dm2, i,j,cols, rows, c_values);
+	for (int m1 = 0; m1 < cols; m1++) {
+		res[index] += q_ij(index, m1, dm1, dm2, i, j, cols, rows, c_values);
 	}
 }
 
 /**
  * result will be stored in first vector
  */
-__global__ void sum_vector(double* v1, double* v2, int len, int stride){
+__global__ void sum_vector(double* v1, double* v2, int len, int stride) {
 	int index = threadIdx.x + blockDim.x * blockIdx.x;
 
-	for(int i = index*stride; i<(index+1)*stride; i++){
+	for (int i = index * stride; i < (index + 1) * stride; i++) {
 		v1[i] += v2[i];
 	}
 }
 
-__global__ void devide_vector(double* v1, double devide_by, int stride){
+__global__ void devide_vector(double* v1, double devide_by, int stride) {
 	int index = threadIdx.x + blockDim.x * blockIdx.x;
 
-	for(int i = index*stride; i<(index+1)*stride; i++){
+	for (int i = index * stride; i < (index + 1) * stride; i++) {
 		v1[i] /= devide_by;
 	}
 }
 
-
+/**
+ * function for full parallel adjacency matrix computation
+ * implements this
+ * basic idea - currently i calc adjacency matrix in loop -
+ * i need to perform this thing in parallel
+ * i need to create max_i * max_j blocks and calc matrix value in each block
+ * and then output them to cpu memory to final adjacency matrix
+ */
+//__global__ void calc_adjacency_matrix(double* result, int dm1, int dm2,
+//		int* values, int cols, int rows, int max_i, int max_j) {
+//
+//	int* c_values;
+//
+//	CUDA_CHECK_RETURN(cudaMalloc((void** )&c_values, m_size));
+//	CUDA_CHECK_RETURN(
+//			cudaMemcpy(c_values, values, m_size, cudaMemcpyHostToDevice));
+//
+//	int blockDim = 1, threadDim = cols;
+//	int* c_res;
+//	CUDA_CHECK_RETURN(
+//			cudaMalloc((void** )&c_res, blockDim * threadDim * sizeof(int)));
+//
+//	int* res = new int[blockDim * threadDim];
+//
+//	int** res_mat = new int*[max_i];
+//
+//	int total_pairs = 0;
+//
+//	for (int i = 0; i < max_i; i++) {
+//		res_mat[i] = new int[max_j];
+//		for (int j = 0; j < max_j; j++) {
+//			c_dm1_dm2<<<blockDim, threadDim>>>(i, j, cols, rows, dm1, dm2,
+//					c_values, c_res);
+//			CUDA_CHECK_RETURN(
+//					cudaMemcpy(res, c_res, blockDim * threadDim * sizeof(int),
+//							cudaMemcpyDeviceToHost));
+//
+//			res_mat[i][j] = std::accumulate(res, res + blockDim * threadDim, 0);
+//			total_pairs += res_mat[i][j];
+//		}
+//	}
+//
+//	for (int i = 0; i < max_i; i++) {
+//		for (int j = 0; j < max_j; j++) {
+//			result[i * max_i + j] = (double) res_mat[i][j]
+//					/ total_pairs;
+//		}
+//	}
+//
+//	delete[] res;
+//	for (int i = 0; i < max_i; i++) {
+//		delete[] res_mat[i];
+//	}
+//	delete[] res_mat;
+//}
 /**
  * in this program i handle each string of picture in single thread
  */
 
-double* calc_adjacency_matrix(int dm1, int dm2, int* values, int cols, int rows, int max_i, int max_j){
+double* calc_adjacency_matrix(int dm1, int dm2, int* values, int cols, int rows,
+		int max_i, int max_j) {
 
 	int m_size = get_matrix_size_bytes(cols, rows);
 
 	int* c_values;
 
-	CUDA_CHECK_RETURN(cudaMalloc((void**)&c_values, m_size));
-	CUDA_CHECK_RETURN(cudaMemcpy(c_values, values, m_size, cudaMemcpyHostToDevice));
+	CUDA_CHECK_RETURN(cudaMalloc((void** )&c_values, m_size));
+	CUDA_CHECK_RETURN(
+			cudaMemcpy(c_values, values, m_size, cudaMemcpyHostToDevice));
 
 	int blockDim = 1, threadDim = cols;
 	int* c_res;
-	CUDA_CHECK_RETURN(cudaMalloc((void**)&c_res, blockDim*threadDim*sizeof(int)));
+	CUDA_CHECK_RETURN(
+			cudaMalloc((void** )&c_res, blockDim * threadDim * sizeof(int)));
 
-	int* res = new int[blockDim*threadDim];
+	int* res = new int[blockDim * threadDim];
 
 	int** res_mat = new int*[max_i];
 
 	int total_pairs = 0;
 
-	for(int i = 0; i<max_i; i++){
+	for (int i = 0; i < max_i; i++) {
 		res_mat[i] = new int[max_j];
-		for(int j = 0; j<max_j; j++){
-			c_dm1_dm2<<<blockDim, threadDim>>>(i,j,cols, rows, dm1, dm2, c_values, c_res);
-			CUDA_CHECK_RETURN(cudaMemcpy(res, c_res, blockDim*threadDim*sizeof(int), cudaMemcpyDeviceToHost));
+		for (int j = 0; j < max_j; j++) {
+			c_dm1_dm2<<<blockDim, threadDim>>>(i, j, cols, rows, dm1, dm2,
+					c_values, c_res);
+			CUDA_CHECK_RETURN(
+					cudaMemcpy(res, c_res, blockDim * threadDim * sizeof(int),
+							cudaMemcpyDeviceToHost));
 
-			res_mat[i][j] = std::accumulate(res, res+blockDim*threadDim, 0);
+			res_mat[i][j] = std::accumulate(res, res + blockDim * threadDim, 0);
 			total_pairs += res_mat[i][j];
 		}
 	}
 
-	double* normalized_res_mat = new double[max_i*max_j];
-	for(int i = 0; i<max_i; i++){
-		for(int j = 0; j<max_j;j++){
-			normalized_res_mat[i*max_i + j] = (double)res_mat[i][j]/total_pairs;
+	double* normalized_res_mat = new double[max_i * max_j];
+	for (int i = 0; i < max_i; i++) {
+		for (int j = 0; j < max_j; j++) {
+			normalized_res_mat[i * max_i + j] = (double) res_mat[i][j]
+					/ total_pairs;
 		}
 	}
 
-	delete []res;
-	for(int i = 0; i<max_i; i++){
-		delete []res_mat[i];
+	delete[] res;
+	for (int i = 0; i < max_i; i++) {
+		delete[] res_mat[i];
 	}
-	delete []res_mat;
+	delete[] res_mat;
 
 	return normalized_res_mat;
 }
 
-double* calc_symmetric_adjacency_matrix(int* pic, int cols, int rows, int dm1, int dm2, int max_i, int max_j){
+double* calc_symmetric_adjacency_matrix(int* pic, int cols, int rows, int dm1,
+		int dm2, int max_i, int max_j) {
+
+	cout << "calc_symmetric_adjacency_matrix started" << endl;
 
 	int size = max_i * max_j;
 
-	double* adj_matr_1 = calc_adjacency_matrix(dm1, dm2, pic, cols, rows, max_i, max_j);
-	double* adj_matr_2 = calc_adjacency_matrix(-dm1, dm2, pic, cols, rows, max_i, max_j);
-	double* adj_matr_3 = calc_adjacency_matrix(dm1, -dm2, pic, cols, rows, max_i, max_j);
-	double* adj_matr_4 = calc_adjacency_matrix(-dm1, -dm2, pic, cols, rows, max_i, max_j);
+	double* adj_matr_1 = calc_adjacency_matrix(dm1, dm2, pic, cols, rows, max_i,
+			max_j);
+	cout << "1" << endl;
+	double* adj_matr_2 = calc_adjacency_matrix(-dm1, dm2, pic, cols, rows,
+			max_i, max_j);
+	cout << "2" << endl;
+	double* adj_matr_3 = calc_adjacency_matrix(dm1, -dm2, pic, cols, rows,
+			max_i, max_j);
+	cout << "3" << endl;
+	double* adj_matr_4 = calc_adjacency_matrix(-dm1, -dm2, pic, cols, rows,
+			max_i, max_j);
+	cout << "4" << endl;
 
-	double *c_adj_matr1,*c_adj_matr2,*c_adj_matr3,*c_adj_matr4;
+	double *c_adj_matr1, *c_adj_matr2, *c_adj_matr3, *c_adj_matr4;
 
-	CUDA_CHECK_RETURN(cudaMalloc((void**)&c_adj_matr1, size*sizeof(double)));
-	CUDA_CHECK_RETURN(cudaMalloc((void**)&c_adj_matr2, size*sizeof(double)));
-	CUDA_CHECK_RETURN(cudaMalloc((void**)&c_adj_matr3, size*sizeof(double)));
-	CUDA_CHECK_RETURN(cudaMalloc((void**)&c_adj_matr4, size*sizeof(double)));
+	CUDA_CHECK_RETURN(cudaMalloc((void** )&c_adj_matr1, size * sizeof(double)));
+	CUDA_CHECK_RETURN(cudaMalloc((void** )&c_adj_matr2, size * sizeof(double)));
+	CUDA_CHECK_RETURN(cudaMalloc((void** )&c_adj_matr3, size * sizeof(double)));
+	CUDA_CHECK_RETURN(cudaMalloc((void** )&c_adj_matr4, size * sizeof(double)));
 
-	CUDA_CHECK_RETURN(cudaMemcpy(c_adj_matr1, adj_matr_1, size*sizeof(double), cudaMemcpyHostToDevice));
-	CUDA_CHECK_RETURN(cudaMemcpy(c_adj_matr2, adj_matr_2, size*sizeof(double), cudaMemcpyHostToDevice));
-	CUDA_CHECK_RETURN(cudaMemcpy(c_adj_matr3, adj_matr_3, size*sizeof(double), cudaMemcpyHostToDevice));
-	CUDA_CHECK_RETURN(cudaMemcpy(c_adj_matr4, adj_matr_4, size*sizeof(double), cudaMemcpyHostToDevice));
+	CUDA_CHECK_RETURN(
+			cudaMemcpy(c_adj_matr1, adj_matr_1, size * sizeof(double),
+					cudaMemcpyHostToDevice));
+	CUDA_CHECK_RETURN(
+			cudaMemcpy(c_adj_matr2, adj_matr_2, size * sizeof(double),
+					cudaMemcpyHostToDevice));
+	CUDA_CHECK_RETURN(
+			cudaMemcpy(c_adj_matr3, adj_matr_3, size * sizeof(double),
+					cudaMemcpyHostToDevice));
+	CUDA_CHECK_RETURN(
+			cudaMemcpy(c_adj_matr4, adj_matr_4, size * sizeof(double),
+					cudaMemcpyHostToDevice));
 
+	cout << "summing" << endl;
 	sum_vector<<<1, max_i>>>(c_adj_matr1, c_adj_matr2, size, max_i);
 	sum_vector<<<1, max_i>>>(c_adj_matr1, c_adj_matr3, size, max_i);
 	sum_vector<<<1, max_i>>>(c_adj_matr1, c_adj_matr4, size, max_i);
 
+	cout << "deviding" << endl;
 	devide_vector<<<1, max_i>>>(c_adj_matr1, 4.0, max_i);
 
-	CUDA_CHECK_RETURN(cudaMemcpy(adj_matr_1, c_adj_matr1, size*sizeof(double), cudaMemcpyDeviceToHost));
+	CUDA_CHECK_RETURN(
+			cudaMemcpy(adj_matr_1, c_adj_matr1, size * sizeof(double),
+					cudaMemcpyDeviceToHost));
 
-	delete []adj_matr_2;
-	delete []adj_matr_3;
-	delete []adj_matr_4;
+	delete[] adj_matr_2;
+	delete[] adj_matr_3;
+	delete[] adj_matr_4;
 
 	CUDA_CHECK_RETURN(cudaFree(c_adj_matr1));
 	CUDA_CHECK_RETURN(cudaFree(c_adj_matr2));
 	CUDA_CHECK_RETURN(cudaFree(c_adj_matr3));
 	CUDA_CHECK_RETURN(cudaFree(c_adj_matr4));
 
+	cout << "finished" << endl;
+
 	return adj_matr_1;
 }
 
-__global__ double* calc_first_angle_moment(
-    double* result,
-    double* normalized_symmetric_adjacency_matrix,
-    int rows,
-    int cols,
-    int max_j,
-    int i,
-    int stride){
-    int index = threadIdx.x + blockDim.x * blockIdx.x;
-
-    for(int m = index * stride; m<(index+1)*stride; m++){
-        result[m] = normalized_symmetric_adjacency_matrix[i * rows + m];
-    }
+double first_angle_moment(double* matr, int max_i, int max_j, int i) {
+	double result = 0;
+	for (int j = 0; j < max_j; j++) {
+		result += matr[i * max_i + j];
+	}
+	return result;
 }
 
-__global__ void calc_first_main_moment(double* first_angle_moment,
-                                          double* result, int stride,
-                                          double i){
-    int index = threadIdx.x + blockDim.x * blockIdx.x;
+double mi(double* matr, int max_i, int max_j, int i) {
+	double result = 0;
+	for (int j = 0; j < max_j; j++) {
+		result += j * matr[i * max_i + j] - i;
+	}
+	return result;
+}
 
-    for(int m = index * stride; m < (index+1) * stride; m++){
-        result[m] = i * first_angle_moment[m];
-    }
+double mj(double* matr, int max_i, int max_j, int i) {
+	double result = 0;
+	for (int j = 0; j < max_j; j++) {
+		result += i * matr[i * max_i + j] - j;
+	}
+	return result;
+}
+
+double first_main_moment(double* matr, int rows, int cols, int max_i,
+		int max_j) {
+	double result = 0;
+	for (int i = 0; i < max_i; i++) {
+		result += first_angle_moment(matr, max_i, max_j, i);
+	}
+	return result;
 }
 
 /**
-  * this should be called once for single string in picture
-  * or once for single j value
-  *
-  * */
-__global__ void calc_second_angle_moment(
-        double* result,
-        double* normalized_symmetric_adjacency_matrix,
-        int rows,
-        int cols,
-        int max_j,
-        int i,
-        int stride){
-    int index = threadIdx.x + blockDim.x * blockIdx.x;
+ * warn, that result is powered by 2
+ */
+double second_angle_moment(double *matr, int max_i, int max_j) {
 
-    for(int m = index * stride; m< (index+1) * stride; m++){
-        result[m] += pow(normalized_symmetric_adjacency_matrix[i*rows + m], 2);
-    }
+	double result = 0;
+
+	for (int i = 0; i < max_i; i++) {
+		for (int j = 0; j < max_j; j++) {
+			result += pow(matr[i * max_i + j], 2.0);
+		}
+	}
+	return result;
 }
 
-__global__ void calc_contrast(double* result,
-                              double* normalized_symmetric_adjacency_matrix,
-                              int rows, int cols,
-                              int max_j,
-                              int i,
-                              int stride){
-    int index = threadIdx.x + blockDim.x * blockIdx.x;
+double contrast(double* matr, int max_i, int max_j) {
+	double result = 0;
 
-    for(int j = index * stride; j< (index+1) * stride; j++){
-        result[m] += abs(i-j)*normalized_symmetric_adjacency_matrix[i*rows + j];
-    }
+	for (int i = 0; i < max_i; i++) {
+		for (int j = 0; j < max_j; j++) {
+			result += abs(i - j) * matr[i * max_i + j];
+		}
+	}
 
+	return result;
 }
 
-__global__ void calc_intertion(double* result,
-                               double* normalized_symmetric_adjacency_matrix,
-                               int rows, int cols,
-                               int max_j,
-                               int i,
-                               int stride){
-    int index = threadIdx.x + blockDim.x * blockIdx.x;
+double intertion(double* matr, int max_i, int max_j) {
 
-    for(int j = index * stride; j< (index+1) * stride; j++){
-        result[m] += pow(i-j, 2)*normalized_symmetric_adjacency_matrix[i*rows + j];
-    }
+	double result = 0;
+
+	for (int i = 0; i < max_i; i++) {
+		for (int j = 0; j < max_j; j++) {
+			result += pow(i - j, 2.0) * matr[i * max_i + j];
+		}
+	}
+
+	return result;
 }
 
-__global__ void calc_correlation(double* result,
-                               double* normalized_symmetric_adjacency_matrix,
-                               int rows, int cols,
-                               int max_j,
-                               int i,
-                               double mx,
-                               int stride){
-    int index = threadIdx.x + blockDim.x * blockIdx.x;
+double correlation(double* matr, int max_i, int max_j, double mx) {
+	double result = 0;
 
-    for(int j = index * stride; j< (index+1) * stride; j++){
-        result[m] += (i-mx)*(j-mx)*normalized_symmetric_adjacency_matrix[i*rows + j];
-    }
+	for (int i = 0; i < max_i; i++) {
+		for (int j = 0; j < max_j; j++) {
+			result += (i - mx) * (j - mx) * matr[i * max_i + j];
+		}
+	}
+
+	return result;
 }
 
-__global__ void calc_blackout(double* result,
-                               double* normalized_symmetric_adjacency_matrix,
-                               int rows, int cols,
-                               int max_j,
-                               int i,
-                               double mx,
-                               int stride){
-    int index = threadIdx.x + blockDim.x * blockIdx.x;
+double blackout(double* matr, int max_i, int max_j, double mx) {
+	double result = 0;
 
-    for(int j = index * stride; j< (index+1) * stride; j++){
-        result[m] += pow(i+j-2*mx,3)*normalized_symmetric_adjacency_matrix[i*rows + j];
-    }
+	for (int i = 0; i < max_i; i++) {
+		for (int j = 0; j < max_j; j++) {
+			result += pow(i + j - 2 * mx, 3.0) * matr[i * max_i + j];
+		}
+	}
+
+	return result;
 }
 
-__global__ void calc_entropy(double* result,
-                               double* normalized_symmetric_adjacency_matrix,
-                               int rows, int cols,
-                               int max_j,
-                               int i,
-                               double mx,
-                               int stride){
-    int index = threadIdx.x + blockDim.x * blockIdx.x;
+double entropy(double* matr, int max_i, int max_j) {
+	double result = 0;
 
-    for(int j = index * stride; j< (index+1) * stride; j++){
-        result[m] += ln(normalized_symmetric_adjacency_matrix[i*rows + j])*normalized_symmetric_adjacency_matrix[i*rows + j];
-    }
-    result[m] = -result[m]; // looks like cratch
+	for (int i = 0; i < max_i; i++) {
+		for (int j = 0; j < max_j; j++) {
+			result += log(matr[i * max_i + j]) * matr[i * max_i + j];
+		}
+	}
+
+	return result;
 }
 
-__global__ void calc_reverse_deviation(double* result,
-                               double* normalized_symmetric_adjacency_matrix,
-                               int rows, int cols,
-                               int max_j,
-                               int i,
-                               double mx,
-                               int stride){
-    int index = threadIdx.x + blockDim.x * blockIdx.x;
+double backward_deviation(double* matr, int max_i, int max_j) {
+	double result = 0;
 
-    for(int j = index * stride; j< (index+1) * stride; j++){
-        result[m] += pow(1+abs(i-j),-1)*normalized_symmetric_adjacency_matrix[i*rows + j];
-    }
+	for (int i = 0; i < max_i; i++) {
+		for (int j = 0; j < max_j; j++) {
+			result += pow(1 + abs(i - j), -1.0) * matr[i * max_i + j];
+		}
+	}
+
+	return result;
 }
 
-__global__ void calc_reverse_moment(double* result,
-                               double* normalized_symmetric_adjacency_matrix,
-                               int rows, int cols,
-                               int max_j,
-                               int i,
-                               double mx,
-                               int stride){
-    int index = threadIdx.x + blockDim.x * blockIdx.x;
+double backward_moment(double* matr, int max_i, int max_j) {
+	double result = 0;
 
-    for(int j = index * stride; j< (index+1) * stride; j++){
-        result[m] += pow(1+abs(i-j),-2)*normalized_symmetric_adjacency_matrix[i*rows + j];
-    }
+	for (int i = 0; i < max_i; i++) {
+		for (int j = 0; j < max_j; j++) {
+			result += pow(1 + pow(i - j, 2.0), -1.0) * matr[i * max_i + j];
+		}
+	}
+
+	return result;
 }
 
-void test(){
+double diagonal_moment(double* matr, int max_i, int max_j, double mx) {
+	double result = 0;
+
+	for (int i = 0; i < max_i; i++) {
+		for (int j = 0; j < max_j; j++) {
+			result += abs(i - j) * (i + j - 2 * mx) * matr[i * max_i + j];
+		}
+	}
+
+	return result;
+}
+
+double summary_average(double* matr, int max_i, int max_j) {
+	double result = 0;
+
+	for (int i = 0; i < max_i; i++) {
+		for (int j = 0; j < max_j; j++) {
+			result += mi(matr, max_i, max_j, i)
+					* first_angle_moment(matr, max_i, max_j, i);
+		}
+	}
+	return result;
+}
+
+double summary_entropy(double* matr, int rows, int cols, int max_i, int max_j) {
+	double result = 0;
+
+	for (int i = 0; i < max_i; i++) {
+		for (int j = 0; j < max_j; j++) {
+			result += log(first_angle_moment(matr, max_i, max_j, i))
+					* first_angle_moment(matr, max_i, max_j, i);
+		}
+	}
+	return result;
+}
+
+double summary_correlation(double* matr, int max_i, int max_j) {
+	double result = 0;
+
+	for (int i = 0; i < max_i; i++) {
+		for (int j = 0; j < max_j; j++) {
+			result += mi(matr, max_i, max_j, i) * mj(matr, max_i, max_j, j);
+		}
+	}
+	return result;
+}
+
+void test() {
 	double* v1 = new double[4];
 	double* v2 = new double[4];
 
-	for(int i = 0; i<4; i++){
+	for (int i = 0; i < 4; i++) {
 		v1[i] = i;
 		v2[i] = i;
 	}
@@ -348,49 +483,118 @@ void test(){
 
 	double *c_v1, *c_v2;
 
-	cudaMalloc((void**)&c_v1, 4*sizeof(double));
-	cudaMalloc((void**)&c_v2, 4*sizeof(double));
+	cudaMalloc((void**) &c_v1, 4 * sizeof(double));
+	cudaMalloc((void**) &c_v2, 4 * sizeof(double));
 
-	cudaMemcpy(c_v1, v1, 4*sizeof(double), cudaMemcpyHostToDevice);
-	cudaMemcpy(c_v2, v2, 4*sizeof(double), cudaMemcpyHostToDevice);
+	cudaMemcpy(c_v1, v1, 4 * sizeof(double), cudaMemcpyHostToDevice);
+	cudaMemcpy(c_v2, v2, 4 * sizeof(double), cudaMemcpyHostToDevice);
 
-	sum_vector<<<1,2>>>(c_v1, c_v2, 4, 2);
+	sum_vector<<<1, 2>>>(c_v1, c_v2, 4, 2);
 
-	cudaMemcpy(v1, c_v1, 4*sizeof(double), cudaMemcpyDeviceToHost);
+	cudaMemcpy(v1, c_v1, 4 * sizeof(double), cudaMemcpyDeviceToHost);
 	print_vector(v1, 4);
 
 	cudaFree(c_v1);
 	cudaFree(c_v2);
-	delete []v1;
-	delete []v2;
+	delete[] v1;
+	delete[] v2;
 }
 
-void test2(void) {
+void calc_signs(double* adj_matr, int cols, int rows, int dm1, int dm2,
+		int max_i, int max_j) {
 
-	// here adjacency matrix calculation is started
+	cout << "started calculation" << endl;
 
-	srand(time(NULL));
+	double fma = 0;
 
-	static const int rows = 1024, cols = 1024,
-            dm1 = 20, dm2 = 20, max_i = 256, max_j = 256;
+	for (int i = 0; i < max_i; i++) {
+		fma = first_angle_moment(adj_matr, max_i, max_j, i);
+		PRINTER(fma);
 
-	int* values = prepare_matrix(cols, rows);
-	const int m_size = get_matrix_size_bytes(cols,rows);
+	}
 
-	cout << endl;
+	double fmm = first_main_moment(adj_matr, rows, cols, max_i, max_j);
 
-	double* matr = calc_symmetric_adjacency_matrix(values, cols, rows, dm1, dm2, max_i, max_j);
-	print_vector(matr, max_i, max_j);
-	cout << "finished" << endl;
+	PRINTER(fmm);
 
-	delete []values;
-	delete []matr;
+	double sam = second_angle_moment(adj_matr, max_i, max_j);
+
+	PRINTER(sam);
+
+	double ctr = contrast(adj_matr, max_i, max_j);
+
+	PRINTER(ctr);
+
+	double inrt = intertion(adj_matr, max_i, max_j);
+
+	PRINTER(inrt);
+
+	double crl = correlation(adj_matr, max_i, max_j, fmm);
+
+	PRINTER(crl);
+
+	double bkt = blackout(adj_matr, max_i, max_j, fmm);
+
+	PRINTER(bkt);
+
+	double trp = entropy(adj_matr, max_i, max_j);
+
+	PRINTER(bkt);
+
+	double b_dvt = backward_deviation(adj_matr, max_i, max_j);
+
+	PRINTER(b_dvt);
+
+	double b_mnt = backward_moment(adj_matr, max_i, max_j);
+
+	PRINTER(b_mnt);
+
+	double d_mnt = diagonal_moment(adj_matr, max_i, max_j, fmm);
+
+	PRINTER(d_mnt);
+
+	double s_avg = summary_average(adj_matr, max_i, max_j);
+
+	PRINTER(s_avg);
+
+	double s_crl = summary_correlation(adj_matr, max_i, max_j);
+
+	PRINTER(s_crl);
+
 }
 
-void print_vector(double* v, int cols, int rows){
-	for(int i = 0; i<cols; i++){
-		for(int j = 0; j<rows; j++){
-			cout << v[i*cols + j] << "|";
+//int main(void) {
+//
+//	// here adjacency matrix calculation is started
+//
+//	srand(time(NULL));
+//
+//	static const int rows = 1024, cols = 1024, dm1 = 20, dm2 = 20, max_i = 256,
+//			max_j = 256;
+//
+//	int* values = prepare_matrix(cols, rows);
+////	int* values = read_image_to_vector(path);
+//	const int m_size = get_matrix_size_bytes(cols, rows);
+//
+//	cout << endl;
+//
+//	double* matr = calc_symmetric_adjacency_matrix(values, cols, rows, dm1, dm2,
+//			max_i, max_j);
+//
+//	calc_signs(matr, cols, rows, dm1, dm2, max_i, max_j);
+//
+//	cout << "finished" << endl;
+//
+//	delete[] values;
+//	delete[] matr;
+//
+//	return 0;
+//}
+
+void print_vector(double* v, int cols, int rows) {
+	for (int i = 0; i < rows; i++) {
+		for (int j = 0; j < cols; j++) {
+			cout << v[i * rows + j] << "|";
 		}
 		cout << endl;
 	}
@@ -400,12 +604,13 @@ void print_vector(double* v, int cols, int rows){
  * Check the return value of the CUDA runtime API call and exit
  * the application if the call has failed.
  */
-static void CheckCudaErrorAux (const char *file, unsigned line, const char *statement, cudaError_t err)
-{
+static void CheckCudaErrorAux(const char *file, unsigned line,
+		const char *statement, cudaError_t err) {
 	if (err == cudaSuccess)
 		return;
-	std::cerr << statement<<" returned " << cudaGetErrorString(err) << "("<<err<< ") at "<<file<<":"<<line << std::endl;
-	exit (1);
+	std::cerr << statement << " returned " << cudaGetErrorString(err) << "("
+			<< err << ") at " << file << ":" << line << std::endl;
+	exit(1);
 }
 
 /**
@@ -415,46 +620,60 @@ static void CheckCudaErrorAux (const char *file, unsigned line, const char *stat
  * matrix in form of 2 dim array
  * so i use vector
  */
-int* prepare_matrix(int cols, int rows){
-	int* values = new int[rows*cols];
-	for(int i = 0; i<cols; i++){
-		for(int j = 0; j<rows; j++){
-			values[i*cols + j] = rand()%10;
+int* prepare_matrix(int cols, int rows) {
+	int* values = new int[rows * cols];
+	for (int i = 0; i < cols; i++) {
+		for (int j = 0; j < rows; j++) {
+			values[i * cols + j] = rand() % 10;
 		}
 	}
 	return values;
 }
 
+int* read_image_to_vector(const char* path) {
+//	image < rgb_pixel > image(path);
+//
+//	size_t height = image.get_height(), width = image.get_width();
+//
+//	int* vec = new int[height * width];
+//
+//	for (size_t y = 0; y < height; ++y) {
+//		for (size_t x = 0; x < width; ++x) {
+//			vec[y * height + x] = (int) image[y][x].red;
+//		}
+//	}
+//	return vec;
+}
 
-void print_vector(int* v, int len){
-	for(int i = 0; i<len; i++){
+void print_vector(int* v, int len) {
+	for (int i = 0; i < len; i++) {
 		cout << v[i] << "|";
 	}
 	cout << endl;
 }
-void print_vector(double* v, int len){
-	for(int i = 0; i<len; i++){
+void print_vector(double* v, int len) {
+	for (int i = 0; i < len; i++) {
 		cout << v[i] << "|";
 	}
 	cout << endl;
 }
 
-void print_matrix(int** m, int w, int h){
-	for(int i = 0; i<h; i++){
+void print_matrix(int** m, int w, int h) {
+	for (int i = 0; i < h; i++) {
 		print_vector(m[i], w);
 	}
 }
 
-void print_matrix(double** m, int w, int h){
-	for(int i = 0; i<h; i++){
+void print_matrix(double** m, int w, int h) {
+	for (int i = 0; i < h; i++) {
 		print_vector(m[i], w);
 	}
 }
 
-void print_matrix(matrix* matr){
-	for(int i = 0; i<matr->cols; i++){
-		for(int j = 0; j<matr->rows; j++){
-			cout << matr->values[i*matr->cols + j] << ":";
+void print_matrix(matrix* matr) {
+	for (int i = 0; i < matr->cols; i++) {
+		for (int j = 0; j < matr->rows; j++) {
+			cout << matr->values[i * matr->cols + j] << ":";
 		}
 		cout << endl;
 	}

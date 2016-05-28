@@ -8,15 +8,14 @@
 #ifndef IMAGE_STATISTIC_H_
 #define IMAGE_STATISTIC_H_
 
-
-struct matrix{
+struct matrix {
 	int cols, rows;
 	int* values;
 
-	matrix(int cols, int rows){
+	matrix(int cols, int rows) {
 		this->cols = cols;
 		this->rows = rows;
-		values = new int[cols*rows];
+		values = new int[cols * rows];
 	}
 };
 
@@ -30,7 +29,12 @@ void print_vector(int* v, int len);
 void print_vector(double* v, int cols, int rows);
 
 int* prepare_matrix(int cols, int rows);
-double* calc_adjacency_matrix(int dm1, int dm2, int* c_values, int cols, int rows, int max_i, int max_j);
+double* calc_adjacency_matrix(int dm1, int dm2, int* c_values, int cols,
+		int rows, int max_i, int max_j);
+void calc_signs(double* adj_matr, int cols, int rows, int dm1, int dm2,
+		int max_i, int max_j);
+double* calc_symmetric_adjacency_matrix(int* pic, int cols, int rows, int dm1,
+		int dm2, int max_i, int max_j);
 
 int get_matrix_size_bytes(int cols, int rows);
 //
@@ -39,9 +43,5 @@ int get_matrix_size_bytes(int cols, int rows);
 //
 //__device__ int q_ij(int m1, int m2, int d_m1, int d_m2, int i, int j, int cols, int rows, int* pic);
 //__device__ int f(int m1, int m2, int cols, int rows, int* pic);
-
-
-
-
 
 #endif /* IMAGE_STATISTIC_H_ */
