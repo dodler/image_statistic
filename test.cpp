@@ -20,6 +20,12 @@
 #include <fstream>
 #include "boost/date_time/posix_time/posix_time.hpp"
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+struct stat st = {0};
+
 namespace fs = boost::filesystem;
 
 typedef boost::posix_time::ptime Time;
@@ -31,7 +37,9 @@ using namespace png;
 
 //string path =
 //		"/media/lyan/5C88875B4189CFED/KylbergTextureDataset-1.0-png-originals.7z.001.1/KylbergTextureDataset-1.0-png-originals/";
-string path = "/media/lyan/5C88875B4189CFED/noisy/KylbergTextureDataset-1.0-png-originals/";
+//string path = "/media/lyan/5C88875B4189CFED/noisy/KylbergTextureDataset-1.0-png-originals/";
+
+string path = "/media/lyan/5C88875B4189CFED/noisy/";
 
 string output_path = "noisy/";
 
@@ -43,12 +51,12 @@ extern "C++" double* calc_signs(double* adj_matr, int cols, int rows, int dm1,
 extern "C++" double* calc_symmetric_adjacency_matrix(int* pic, int cols,
 		int rows, int dm1, int dm2, int max_i, int max_j);
 
-vector<string>* test() {
+vector<string>* get_files_from_dir_with_noise(string noise_path) {
 	boost::progress_timer t(std::clog);
 
 	fs::path full_path(fs::initial_path<fs::path>());
 
-	full_path = fs::system_complete(fs::path(path));
+	full_path = fs::system_complete(fs::path(path + noise_path));
 
 	unsigned long file_count = 0;
 	unsigned long dir_count = 0;
@@ -90,7 +98,15 @@ vector<string>* test() {
 	return files;
 }
 
-double* exec(string path, string img_name, int max_i, int max_j, int dm1,
+/**
+ * here noise path stands for dispersion of noise in picture
+ * assumed that pictures with noise of that dispersion are distributed among directories
+ * respectively
+ * path is path to target image
+ * max i and j are maximum values for intensity
+ * dm1 and dm2 are parameters for adjacency matrix
+ */
+double* exec(string noise_path, string path, string img_name, int max_i, int max_j, int dm1,
 		int dm2) {
 	cout << "exec started" << endl;
 	cout << "current path:" << path << endl;
@@ -121,7 +137,10 @@ double* exec(string path, string img_name, int max_i, int max_j, int dm1,
 	cout << "matrix ready" << endl;
 	double *signs = calc_signs(matr, width, height, dm1, dm2, max_i, max_j);
 
-	string out_data = output_path + img_name + "_" + to_string(dm1) + "_" + to_string(dm2) + "_.txt";
+	string noise_out = output_path + noise_path;
+	mkdir(noise_out.c_str(), 0700);
+
+	string out_data = noise_out + img_name + "_" + to_string(dm1) + "_" + to_string(dm2) + "_.txt";
 	ofstream out(out_data.c_str());
 	int signs_num = (int)signs[0];
 	for(int j = 1; j<signs_num; j++){
@@ -148,13 +167,19 @@ int main(int argc, char* argv[]) {
 		dm2 = atoi(argv[2]);
 	}
 
+	string noise_path; // this should be initialized
 	if (argc == 4){
-		path = string(argv[3]);
+		noise_path = string(argv[3]);
 	}
+
+	string noise_out = output_path + noise_path + "output/";
+	mkdir(noise_out.c_str(), 0700);
+
+	cout << noise_out << endl;
 
 	cout << path << endl;
 
-	vector<string> *files = test();
+	vector<string> *files = get_files_from_dir_with_noise(noise_path);
 
 	double **signs = new double*[files->size()];
 
@@ -162,14 +187,17 @@ int main(int argc, char* argv[]) {
 
 	for (vector<string>::iterator it = files->begin(); it != files->end();
 			it++) {
-		signs[i++] = exec(path + string(it->data()), string(it->data()), max_i,
+		signs[i++] = exec(noise_path, path + noise_path + string(it->data()), string(it->data()), max_i,
 				max_j, dm1, dm2);
 	}
 
 	int signs_num = (int)signs[0][0];
 
+//	string noise_out = output_path + noise_path + "output/";
+	mkdir(noise_out.c_str(), 0700);
+
 	for (int i = 1; i < signs_num; i++) {
-		string out_data = output_path + to_string(i) + "_" + to_string(dm1) + "_" + to_string(dm2) + ".output.txt";
+		string out_data = noise_out + to_string(i) + "_" + to_string(dm1) + "_" + to_string(dm2) + ".output.txt";
 		ofstream out(out_data.c_str());
 		for (int j = 0; j< files->size(); j++) {
 			out << signs[j][i] << endl;
