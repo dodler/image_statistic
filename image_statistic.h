@@ -21,6 +21,7 @@ struct matrix {
 
 typedef char* uchar;
 
+void test_matrix();
 void print_matrix(matrix* matr);
 void print_matrix(double** m, int w, int h);
 void print_matrix(int** m, int w, int h);

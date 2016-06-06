@@ -52,9 +52,9 @@ int get_matrix_size_bytes(int cols, int rows) {
  */
 __device__ int f(int m1, int m2, int cols, int rows, int* pic) {
 	if (m1 < rows && m2 < cols && m1 >= 0 && m2 >= 0) {
-		return pic[m1 * cols + m2];
+		return pic[m1 * rows + m2];
 	} else {
-		return 0;
+		return -1;
 	}
 }
 
@@ -456,7 +456,8 @@ double* calc_signs(double* adj_matr, int cols, int rows, int dm1, int dm2,
 	double *result = new double[signs_num];
 
 	result[0] = signs_num;
-	double fmm = result[1] = first_main_moment(adj_matr, rows, cols, max_i, max_j);
+	double fmm = result[1] = first_main_moment(adj_matr, rows, cols, max_i,
+			max_j);
 	result[2] = second_angle_moment(adj_matr, max_i, max_j);
 	result[3] = contrast(adj_matr, max_i, max_j);
 	result[4] = intertion(adj_matr, max_i, max_j);
@@ -470,37 +471,8 @@ double* calc_signs(double* adj_matr, int cols, int rows, int dm1, int dm2,
 	result[12] = summary_correlation(adj_matr, max_i, max_j);
 	result[13] = summary_entropy(adj_matr, max_i, max_j);
 
-
 	return result;
 }
-
-//int main(void) {
-//
-//	// here adjacency matrix calculation is started
-//
-//	srand(time(NULL));
-//
-//	static const int rows = 1024, cols = 1024, dm1 = 20, dm2 = 20, max_i = 256,
-//			max_j = 256;
-//
-//	int* values = prepare_matrix(cols, rows);
-////	int* values = read_image_to_vector(path);
-//	const int m_size = get_matrix_size_bytes(cols, rows);
-//
-//	cout << endl;
-//
-//	double* matr = calc_symmetric_adjacency_matrix(values, cols, rows, dm1, dm2,
-//			max_i, max_j);
-//
-//	calc_signs(matr, cols, rows, dm1, dm2, max_i, max_j);
-//
-//	cout << "finished" << endl;
-//
-//	delete[] values;
-//	delete[] matr;
-//
-//	return 0;
-//}
 
 void print_vector(double* v, int cols, int rows) {
 	for (int i = 0; i < rows; i++) {
@@ -539,21 +511,6 @@ int* prepare_matrix(int cols, int rows) {
 		}
 	}
 	return values;
-}
-
-int* read_image_to_vector(const char* path) {
-//	image < rgb_pixel > image(path);
-//
-//	size_t height = image.get_height(), width = image.get_width();
-//
-//	int* vec = new int[height * width];
-//
-//	for (size_t y = 0; y < height; ++y) {
-//		for (size_t x = 0; x < width; ++x) {
-//			vec[y * height + x] = (int) image[y][x].red;
-//		}
-//	}
-//	return vec;
 }
 
 void print_vector(int* v, int len) {

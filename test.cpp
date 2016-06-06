@@ -51,6 +51,8 @@ extern "C++" double* calc_signs(double* adj_matr, int cols, int rows, int dm1,
 extern "C++" double* calc_symmetric_adjacency_matrix(int* pic, int cols,
 		int rows, int dm1, int dm2, int max_i, int max_j);
 
+extern "C++" void test_matrix();
+
 vector<string>* get_files_from_dir_with_noise(string noise_path) {
 	boost::progress_timer t(std::clog);
 
